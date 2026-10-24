@@ -1,0 +1,268 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Management System</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f1f5f9;
+      margin: 0;
+      color: #1e293b;
+    }
+    header {
+      background: #243b80;
+      color: white;
+      padding: 24px;
+      text-align: center;
+    }
+    main {
+      max-width: 1000px;
+      margin: 25px auto;
+      padding: 15px;
+    }
+    .card {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px #0001;
+    }
+    input {
+      padding: 10px;
+      margin: 6px 0 12px;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 5px;
+    }
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 3px;
+    }
+    .add { background: #243b80; color: white; }
+    .edit { background: #dbeafe; }
+    .delete { background: #fee2e2; color: #b91c1c; }
+    .cancel { background: #e2e8f0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .table-wrap { overflow-x: auto; }
+    #message { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Student Management System</h1>
+    <p>Manage student records easily</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2 id="formTitle">Add Student</h2>
+      <form id="studentForm">
+        <label>Name</label>
+        <input id="name" required placeholder="Enter student name">
+
+        <label>Email</label>
+        <input id="email" type="email" required placeholder="Enter email">
+
+        <label>Age</label>
+        <input id="age" type="number" min="1" max="120" required>
+
+        <label>Course</label>
+        <input id="course" required placeholder="e.g. B.Tech ECE">
+
+        <button class="add" type="submit" id="saveBtn">Add Student</button>
+        <button class="cancel" type="button" id="cancelBtn" hidden>Cancel</button>
+      </form>
+      <p id="message" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Student Records</h2>
+      <p>Total Students: <strong id="total">0</strong></p>
+      <button class="cancel" type="button" id="refreshBtn">Refresh Records</button>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Name</th><th>Email</th>
+              <th>Age</th><th>Course</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="studentRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let students = [];
+    let editingId = null;
+
+    const form = document.getElementById("studentForm");
+    const message = document.getElementById("message");
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+
+      if (!response.ok) {
+        let error = "Request failed: " + response.status;
+        try {
+          const data = await response.json();
+          error = Array.isArray(data.detail)
+            ? data.detail.map(item => item.msg).join(", ")
+            : (data.detail || error);
+        } catch {}
+        throw new Error(String(error));
+      }
+
+      if (response.status === 204) return null;
+      return response.json();
+    }
+
+    function showMessage(text, error = false) {
+      message.textContent = text;
+      message.style.color = error ? "#b91c1c" : "#15803d";
+    }
+
+    async function loadStudents() {
+      try {
+        students = await api("/students");
+        document.getElementById("total").textContent = students.length;
+
+        const rows = document.getElementById("studentRows");
+        rows.replaceChildren();
+
+        if (students.length === 0) {
+          const tr = document.createElement("tr");
+          const td = document.createElement("td");
+          td.colSpan = 6;
+          td.textContent = "No student records found.";
+          tr.appendChild(td);
+          rows.appendChild(tr);
+        }
+
+        students.forEach(student => {
+          const tr = document.createElement("tr");
+
+          [student.id, student.name, student.email, student.age, student.course]
+            .forEach(value => {
+              const td = document.createElement("td");
+              td.textContent = value ?? "";
+              tr.appendChild(td);
+            });
+
+          const actions = document.createElement("td");
+
+          const edit = document.createElement("button");
+          edit.className = "edit";
+          edit.textContent = "Edit";
+          edit.onclick = () => editStudent(student.id);
+
+          const del = document.createElement("button");
+          del.className = "delete";
+          del.textContent = "Delete";
+          del.onclick = () => deleteStudent(student.id);
+
+          actions.append(edit, del);
+          tr.appendChild(actions);
+          rows.appendChild(tr);
+        });
+      } catch (error) {
+        showMessage("Backend error: " + error.message, true);
+      }
+    }
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const student = {
+        name: document.getElementById("name").value.trim(),
+        email: document.getElementById("email").value.trim(),
+        age: Number(document.getElementById("age").value),
+        course: document.getElementById("course").value.trim()
+      };
+
+      try {
+        if (editingId === null) {
+          await api("/students", {
+            method: "POST",
+            body: JSON.stringify(student)
+          });
+          showMessage("Student added successfully!");
+        } else {
+          await api("/students/" + editingId, {
+            method: "PATCH",
+            body: JSON.stringify(student)
+          });
+          showMessage("Student updated successfully!");
+        }
+
+        resetForm();
+        await loadStudents();
+      } catch (error) {
+        showMessage(error.message, true);
+      }
+    });
+
+    function editStudent(id) {
+      const student = students.find(s => s.id === id);
+      if (!student) return;
+
+      editingId = id;
+      document.getElementById("name").value = student.name;
+      document.getElementById("email").value = student.email;
+      document.getElementById("age").value = student.age;
+      document.getElementById("course").value = student.course;
+      document.getElementById("formTitle").textContent = "Edit Student";
+      document.getElementById("saveBtn").textContent = "Save Changes";
+      document.getElementById("cancelBtn").hidden = false;
+    }
+
+    async function deleteStudent(id) {
+      if (!confirm("Delete this student record?")) return;
+
+      try {
+        await api("/students/" + id, { method: "DELETE" });
+        showMessage("Student deleted successfully!");
+        if (editingId === id) resetForm();
+        await loadStudents();
+      } catch (error) {
+        showMessage(error.message, true);
+      }
+    }
+
+    function resetForm() {
+      form.reset();
+      editingId = null;
+      document.getElementById("formTitle").textContent = "Add Student";
+      document.getElementById("saveBtn").textContent = "Add Student";
+      document.getElementById("cancelBtn").hidden = true;
+    }
+
+    document.getElementById("cancelBtn").onclick = resetForm;
+    document.getElementById("refreshBtn").onclick = loadStudents;
+
+    loadStudents();
+  </script>
+</body>
+</html>
